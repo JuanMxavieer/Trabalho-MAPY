@@ -14,8 +14,8 @@ st.set_page_config(
 )
 
 # Caminhos padrão do seu ambiente local
-caminho_afazeres_padrao = r"H:\3-ETAPA\PY\trabalho_py\Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
-caminho_formacao_padrao = r"H:\3-ETAPA\PY\trabalho_py\Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
+caminho_afazeres_padrao = r"Trabalho-MAPY\Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
+caminho_formacao_padrao = r"Trabalho-MAPY\Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
 
 # ==============================================================================
 # 2. FUNÇÕES DE LEITURA E LIMPEZA COM PANDAS
