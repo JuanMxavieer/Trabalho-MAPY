@@ -14,6 +14,7 @@ st.set_page_config(
 )
 
 # Caminhos padrão do seu ambiente local
+caminho_afazeres_padrao = "Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
 caminho_formacao_padrao = "Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
 
 # ==============================================================================
