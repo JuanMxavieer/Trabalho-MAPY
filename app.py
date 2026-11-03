@@ -28,6 +28,45 @@ NOMES_AREAS = {
 }
 
 
+NOTICIAS = [
+    {
+        "titulo": "Mulheres são maioria na formação científica e somam 57% dos titulados na pós-graduação",
+        "fonte": "Sul21",
+        "data": "12/02/2026",
+        "resumo": "Segundo o Plano Nacional de Pós-Graduação 2025-2029, elas são maioria entre estudantes e titulados, mas ocupam apenas 43% do corpo docente da pós-graduação.",
+        "link": "https://sul21.com.br/?p=286152",
+    },
+    {
+        "titulo": "Mulheres já ocupam 49% da produção científica no Brasil, aponta pesquisa",
+        "fonte": "Viva",
+        "data": "11/02/2026",
+        "resumo": "O Brasil está entre os países com maior presença feminina na produção científica, com presença já consolidada em áreas como saúde e ciências biológicas.",
+        "link": "https://viva.com.br/carreira-e-educacao/mulheres-ja-ocupam-49-da-producao-cientifica-no-brasil-aponta-pesquisa.html",
+    },
+    {
+        "titulo": "O papel decisivo das mulheres nas comunidades científicas e tecnológicas",
+        "fonte": "Portal da Indústria",
+        "data": "",
+        "resumo": "Cita o Censo da Educação Superior de 2021: mulheres eram 13,3% das matrículas presenciais em Computação e TIC e 21,6% em Engenharia, mas permanecem mais tempo nas graduações STEM (77,5% contra 73% dos homens).",
+        "link": "https://noticias.portaldaindustria.com.br/noticias/inovacao-e-tecnologia/o-papel-decisivo-das-mulheres-nas-comunidades-cientificas-e-tecnologicas/",
+    },
+    {
+        "titulo": "Da Escola ao Mercado de Trabalho: sub-representação feminina em STEM no Brasil",
+        "fonte": "SBC - Women in Information Technology (WIT 2026)",
+        "data": "19/07/2026",
+        "resumo": "Estudo que acompanha a participação feminina em STEM entre 2020 e 2025 usando Censo Escolar, Censo da Educação Superior, Plataforma Lattes e PNADC/IBGE.",
+        "link": "https://sol.sbc.org.br/index.php/wit/article/view/43345",
+    },
+    {
+        "titulo": "Trajetórias Ocupacionais de Mulheres em STEM no Brasil",
+        "fonte": "Ministério do Trabalho e Emprego (gov.br)",
+        "data": "03/2025",
+        "resumo": "Apresentação mostra que, entre 2010 e 2022, mulheres continuam concentradas em áreas de cuidados e humanas, e que STEM tem os maiores salários e a maior diferença entre homens e mulheres.",
+        "link": "https://www.gov.br/trabalho-e-emprego/pt-br/noticias-e-conteudo/2025/marco/desafios-da-mulher-no-mercado-de-trabalho-desigualdade-de-genero-e-racismo-persistem/ApresentaoMulheresemSTEMMarianaEugenioAlmeida.pdf/@@download/file",
+    },
+]
+
+
 def ler_bruto(conteudo: bytes, nome: str) -> pd.DataFrame:
     buffer = io.BytesIO(conteudo)
     if nome.lower().endswith(".csv"):
@@ -79,7 +118,7 @@ except Exception as e:
 br = df_formacao[df_formacao["uf_regiao"] == "Brasil"].iloc[0]
 
 st.sidebar.markdown("---")
-pagina = st.sidebar.radio("Selecione a Visualização:", ["🏠 Visão Geral", "🎓 Formação Acadêmica"])
+pagina = st.sidebar.radio("Selecione a Visualização:", ["🏠 Visão Geral", "🎓 Formação Acadêmica", "📰 Notícias"])
 
 st.sidebar.markdown("---")
 tipo_visao = st.sidebar.radio("Filtrar recorte:", ["Apenas Estados (27 UFs)", "Apenas Regiões e Brasil"])
@@ -113,7 +152,7 @@ if pagina == "🏠 Visão Geral":
     st.dataframe(df_fil, width="stretch")
 
 
-else:
+elif pagina == "🎓 Formação Acadêmica":
     st.title("🎓 Proporção de Mulheres na Graduação Superior")
 
     df_melt = df_fil.melt(
@@ -160,3 +199,15 @@ else:
         annotation_text=f"Brasil ({br['pct_mulheres_stem']:.1f}%)",
     )
     st.plotly_chart(fig_rank, width="stretch")
+
+
+else:
+    st.title("📰 Notícias")
+    st.caption("Mulheres na ciência, na tecnologia e no ensino superior no Brasil.")
+
+    for n in NOTICIAS:
+        with st.container(border=True):
+            st.subheader(n["titulo"])
+            st.caption(" · ".join(filter(None, [n["fonte"], n["data"]])))
+            st.write(n["resumo"])
+            st.link_button("Ler matéria completa", n["link"])
