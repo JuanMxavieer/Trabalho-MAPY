@@ -1,314 +1,162 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
+import io
 import os
 
-# ==============================================================================
-# 1. CONFIGURAÇÃO DA PÁGINA STREAMLIT
-# ==============================================================================
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
 st.set_page_config(
-    page_title="Dashboard IBGE - Areas Gerais de Formação",
+    page_title="Dashboard IBGE - Áreas Gerais de Formação",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Caminhos padrão do seu ambiente local
-caminho_afazeres_padrao = "Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
-caminho_formacao_padrao = "Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
+ARQUIVO_PADRAO = "Tabela_3_Areas_gerais_de_formacao_na_graduacao.xlsx"
+REGIOES = ["Brasil", "Norte", "Nordeste", "Sudeste", "Sul", "Centro-Oeste"]
 
-# ==============================================================================
-# 2. FUNÇÕES DE LEITURA E LIMPEZA COM PANDAS
-# ==============================================================================
+GRUPOS = {
+    "total": {"total": 1, "mulheres": 3, "col_total": "total_graduados", "col_mulheres": "mulheres_total", "col_pct": "pct_mulheres_total"},
+    "stem": {"total": 4, "mulheres": 6, "col_total": "stem_total", "col_mulheres": "mulheres_stem", "col_pct": "pct_mulheres_stem"},
+    "saude": {"total": 7, "mulheres": 9, "col_total": "saude_total", "col_mulheres": "mulheres_saude", "col_pct": "pct_mulheres_saude"},
+}
+
+NOMES_AREAS = {
+    "pct_mulheres_total": "Graduação Total",
+    "pct_mulheres_stem": "STEM (Exatas/Tecnologia)",
+    "pct_mulheres_saude": "Saúde e Educação",
+}
+
+
+def ler_bruto(conteudo: bytes, nome: str) -> pd.DataFrame:
+    buffer = io.BytesIO(conteudo)
+    if nome.lower().endswith(".csv"):
+        return pd.read_csv(buffer, header=None)
+    return pd.read_excel(buffer, header=None)
+
 
 @st.cache_data
-def carregar_e_limpar_afazeres(caminho_formacao_padrao):
-    bruto = pd.read_excel(caminho_formacao_padrao, header=None)
+def carregar_formacao(conteudo: bytes, nome: str) -> pd.DataFrame:
+    bruto = ler_bruto(conteudo, nome).iloc[3:36].reset_index(drop=True)
 
-    df = bruto.iloc[3:36, 0:4].copy()
+    df = pd.DataFrame({"uf_regiao": bruto[0].astype(str).str.strip()})
 
-    df.columns = [
-        "uf_regiao",
-        "total",
-        "total_homens",
-        "total_mulheres"
-    ]
-    df = df.reset_index(drop=True)
+    for g in GRUPOS.values():
+        total = pd.to_numeric(bruto[g["total"]], errors="coerce")
+        mulheres = pd.to_numeric(bruto[g["mulheres"]], errors="coerce")
+        df[g["col_total"]] = total
+        df[g["col_mulheres"]] = mulheres
+        df[g["col_pct"]] = (mulheres / total.where(total > 0) * 100).round(2)
 
-    for col in df.columns[1:]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    if "Brasil" not in df["uf_regiao"].values:
+        raise ValueError("Linha 'Brasil' não encontrada. Verifique o formato da planilha.")
 
     return df
 
 
-@st.cache_data
-def carregar_e_limpar_formacao(caminho_ou_arquivo):
-    if isinstance(caminho_ou_arquivo, str):
-        if caminho_ou_arquivo.lower().endswith(".csv"):
-            bruto = pd.read_csv(caminho_ou_arquivo, header=None)
-        else:
-            bruto = pd.read_excel(caminho_ou_arquivo, header=None)
-    else:
-        nome = caminho_ou_arquivo.name.lower()
-        if nome.endswith(".csv"):
-            bruto = pd.read_csv(caminho_ou_arquivo, header=None)
-        else:
-            bruto = pd.read_excel(caminho_ou_arquivo, header=None)
-
-    f_bruto = bruto.iloc[3:36].copy()
-
-    f_total = f_bruto.iloc[:, 0:4].copy()
-    f_total.columns = ["uf_regiao", "total", "homens", "mulheres"]
-
-    f_stem = f_bruto.iloc[:, [0, 4, 5, 6]].copy()
-    f_stem.columns = ["uf_regiao", "total", "homens", "mulheres"]
-
-    f_saude = f_bruto.iloc[:, [0, 7, 8, 9]].copy()
-    f_saude.columns = ["uf_regiao", "total", "homens", "mulheres"]
-
-    for sub_df in [f_total, f_stem, f_saude]:
-        for col in ["total", "homens", "mulheres"]:
-            sub_df[col] = pd.to_numeric(sub_df[col], errors="coerce")
-        sub_df["pct_mulheres"] = ((sub_df["mulheres"] / sub_df["total"]) * 100).round(2)
-
-    df_consolidado = pd.DataFrame({
-        "uf_regiao": f_total["uf_regiao"].values,
-        "total_graduados": f_total["total"].values,
-        "mulheres_total": f_total["mulheres"].values,
-        "pct_mulheres_total": f_total["pct_mulheres"].values,
-        "stem_total": f_stem["total"].values,
-        "pct_mulheres_stem": f_stem["pct_mulheres"].values,
-        "saude_total": f_saude["total"].values,
-        "pct_mulheres_saude": f_saude["pct_mulheres"].values,
-    })
-
-    return df_consolidado
-
-
-# ==============================================================================
-# 3. BARRA LATERAL (SIDEBAR) - CARREGAMENTO DE DADOS E FILTROS
-# ==============================================================================
-
 st.sidebar.title("📌 Menu & Filtros")
+st.sidebar.subheader("📂 Arquivo de entrada")
+arquivo = st.sidebar.file_uploader("Upload Tabela 3 (Formação):", type=["xls", "xlsx", "csv"])
 
-st.sidebar.subheader("📂 Arquivos de Entrada (Pandas)")
+conteudo, nome = None, None
+if arquivo is not None:
+    conteudo, nome = arquivo.getvalue(), arquivo.name
+elif os.path.exists(ARQUIVO_PADRAO):
+    with open(ARQUIVO_PADRAO, "rb") as f:
+        conteudo, nome = f.read(), ARQUIVO_PADRAO
 
-file_afazeres = st.sidebar.file_uploader("Upload Tabela 1.1.1 (Afazeres):", type=["xls", "xlsx", "csv"])
-file_formacao = st.sidebar.file_uploader("Upload Tabela 3 (Formação):", type=["xls", "xlsx", "csv"])
-
-df_afazeres = None
-df_formacao = None
-
-try:
-    if file_afazeres is not None:
-        df_afazeres = carregar_e_limpar_afazeres(file_afazeres)
-    elif os.path.exists(caminho_afazeres_padrao):
-        df_afazeres = carregar_e_limpar_afazeres(caminho_afazeres_padrao)
-except Exception as e:
-    st.sidebar.error(f"Erro ao carregar Tabela 1.1.1: {e}")
-
-try:
-    if file_formacao is not None:
-        df_formacao = carregar_e_limpar_formacao(file_formacao)
-    elif os.path.exists(caminho_formacao_padrao):
-        df_formacao = carregar_e_limpar_formacao(caminho_formacao_padrao)
-except Exception as e:
-    st.sidebar.error(f"Erro ao carregar Tabela de Formação: {e}")
-
-if df_afazeres is None or df_formacao is None:
-    st.warning("⚠️ **Aguardando leitura de dados pelo Pandas.**")
-    st.info(f"""
-    Não foi possível encontrar automaticamente os arquivos nos caminhos:
-    - `{caminho_afazeres_padrao}`
-    - `{caminho_formacao_padrao}`
-
-    **Solução:** Utilize o campo de upload na barra lateral para carregar as tabelas.
-    """)
+if conteudo is None:
+    st.warning("⚠️ Nenhum arquivo encontrado.")
+    st.info(f"Coloque `{ARQUIVO_PADRAO}` na pasta do app ou use o upload na barra lateral.")
     st.stop()
 
-# ==============================================================================
-# VARIÁVEIS GLOBAIS (DEFINIDAS PARA TODAS AS PÁGINAS)
-# ==============================================================================
-br_afazeres = df_afazeres[df_afazeres["uf_regiao"] == "Brasil"]
-br_formacao = df_formacao[df_formacao["uf_regiao"] == "Brasil"]
+try:
+    df_formacao = carregar_formacao(conteudo, nome)
+except Exception as e:
+    st.sidebar.error(f"Erro ao carregar a tabela: {e}")
+    st.stop()
 
-# Navegação
+br = df_formacao[df_formacao["uf_regiao"] == "Brasil"].iloc[0]
+
 st.sidebar.markdown("---")
-pagina = st.sidebar.radio(
-    "Selecione a Visualização:",
-    ["🏠 Visão Geral", "🎓 Formação Acadêmica"]
-)
-
-REGIOES = ["Brasil", "Norte", "Nordeste", "Sudeste", "Sul", "Centro-Oeste"]
+pagina = st.sidebar.radio("Selecione a Visualização:", ["🏠 Visão Geral", "🎓 Formação Acadêmica"])
 
 st.sidebar.markdown("---")
 tipo_visao = st.sidebar.radio("Filtrar recorte:", ["Apenas Estados (27 UFs)", "Apenas Regiões e Brasil"])
 
 if tipo_visao == "Apenas Estados (27 UFs)":
-    df_af_fil = df_afazeres[~df_afazeres["uf_regiao"].isin(REGIOES)].copy()
-    df_fo_fil = df_formacao[~df_formacao["uf_regiao"].isin(REGIOES)].copy()
+    df_fil = df_formacao[~df_formacao["uf_regiao"].isin(REGIOES)]
 else:
-    df_af_fil = df_afazeres[df_afazeres["uf_regiao"].isin(REGIOES)].copy()
-    df_fo_fil = df_formacao[df_formacao["uf_regiao"].isin(REGIOES)].copy()
+    df_fil = df_formacao[df_formacao["uf_regiao"].isin(REGIOES)]
 
-locais_disp = df_af_fil["uf_regiao"].tolist()
+locais_disp = df_fil["uf_regiao"].tolist()
 locais_sel = st.sidebar.multiselect("Filtrar UFs / Regiões:", locais_disp, default=locais_disp)
+df_fil = df_fil[df_fil["uf_regiao"].isin(locais_sel)]
 
-if locais_sel:
-    df_af_fil = df_af_fil[df_af_fil["uf_regiao"].isin(locais_sel)]
-    df_fo_fil = df_fo_fil[df_fo_fil["uf_regiao"].isin(locais_sel)]
+if df_fil.empty:
+    st.warning("Selecione ao menos uma localidade na barra lateral.")
+    st.stop()
 
-
-# ==============================================================================
-# 4. PÁGINA: VISÃO GERAL
-# ==============================================================================
 
 if pagina == "🏠 Visão Geral":
-    st.title("📊 Painel de Análise Social IBGE - Areas Gerais de Formação")
-    st.markdown("Dados lidos do diretório especificado e tratados via **Pandas**.")
+    st.title("📊 Painel de Análise Social IBGE - Áreas Gerais de Formação")
+    st.markdown("Dados da Tabela 3 do IBGE, tratados com **Pandas**.")
 
     col1, col2, col3, col4 = st.columns(4)
-
-    # col1.metric("Média Horas Casa (Brasil)", f"{media_br:.1f} h/sem")
-    # col2.metric("Média Homens", f"{homem_br:.1f} h/sem")
-    # col3.metric("Média Mulheres", f"{mulher_br:.1f} h/sem", delta=f"+{mulher_br - homem_br:.1f} h")
-    # col4.metric("% Mulheres em STEM", f"{stem_br:.1f}%")
+    col1.metric("Total de graduados (Brasil)", f"{br['total_graduados']:,.0f}".replace(",", "."))
+    col2.metric("% Mulheres (total)", f"{br['pct_mulheres_total']:.1f}%")
+    col3.metric("% Mulheres em STEM", f"{br['pct_mulheres_stem']:.1f}%")
+    col4.metric("% Mulheres em Saúde/Educação", f"{br['pct_mulheres_saude']:.1f}%")
 
     st.markdown("---")
-    st.subheader("📋 Visualização das Tabelas Tratadas (Pandas)")
-    tab1, tab2, = st.tabs(["Tabela 1.1.1 (Afazeres Domésticos)", "Tabela 3 (Formação Acadêmica)"])
-    
-    with tab1:
-        st.dataframe(df_af_fil, use_container_width=True)
-    with tab2:
-        st.dataframe(df_fo_fil, use_container_width=True)
+    st.subheader("📋 Tabela tratada")
+    st.dataframe(df_fil, width="stretch")
 
 
-# ==============================================================================
-# 5. PÁGINA: AFAZERES DOMÉSTICOS
-# ==============================================================================
-
-# elif pagina == "📊 Afazeres Domésticos":
-#     st.title("🧹 Dedicação a Cuidados de Pessoas e Afazeres Domésticos")
-
-#     st.subheader("1. Horas Dedicadas por Localidade vs. Média Brasil")
-#     fig_tot = px.bar(
-#         df_af_fil.sort_values("total", ascending=True),
-#         x="total",
-#         y="uf_regiao",
-#         orientation="h",
-#         color="total",
-#         labels={"total": "Horas / Semana", "uf_regiao": "Localidade"},
-#         text_auto=".1f",
-#         color_continuous_scale="Blues"
-#     )
-#     if not br_afazeres.empty:
-#         fig_tot.add_vline(x=media_br, line_dash="dash", line_color="red", annotation_text=f"Média Brasil ({media_br:.1f}h)")
-#     st.plotly_chart(fig_tot, use_container_width=True)
-
-#     st.subheader("2. Comparativo Homens vs. Mulheres")
-#     df_melt_gen = df_af_fil.melt(
-#         id_vars=["uf_regiao"],
-#         value_vars=["homens_media", "mulheres_media"],
-#         var_name="Gênero",
-#         value_name="Horas"
-#     )
-#     df_melt_gen["Gênero"] = df_melt_gen["Gênero"].map({"homens_media": "Homens", "mulheres_media": "Mulheres"})
-
-#     fig_gen = px.bar(
-#         df_melt_gen,
-#         x="uf_regiao",
-#         y="Horas",
-#         color="Gênero",
-#         barmode="group",
-#         labels={"Horas": "Horas / Semana", "uf_regiao": "Localidade"},
-#         color_discrete_map={"Homens": "#2b5c8f", "Mulheres": "#d95f02"}
-#     )
-#     st.plotly_chart(fig_gen, use_container_width=True)
-
-#     st.subheader("3. Cruzamento por Sexo e Cor/Raça (Boxplot)")
-#     df_melt_raca = df_af_fil.melt(
-#         id_vars=["uf_regiao"],
-#         value_vars=["homem_branca", "homem_preta_parda", "mulher_branca", "mulher_preta_parda"],
-#         var_name="Grupo",
-#         value_name="Horas"
-#     )
-#     mapa_raca = {
-#         "homem_branca": "Homem Branco",
-#         "homem_preta_parda": "Homem Preto/Pardo",
-#         "mulher_branca": "Mulher Branca",
-#         "mulher_preta_parda": "Mulher Preta/Parda"
-#     }
-#     df_melt_raca["Grupo"] = df_melt_raca["Grupo"].map(mapa_raca)
-
-#     fig_box = px.box(
-#         df_melt_raca,
-#         x="Grupo",
-#         y="Horas",
-#         color="Grupo",
-#         points="all",
-#         title="Distribuição das Horas entre as Localidades Selecionadas"
-#     )
-#     st.plotly_chart(fig_box, use_container_width=True)
-
-
-# ==============================================================================
-# 6. PÁGINA: FORMAÇÃO ACADÊMICA
-# ==============================================================================
-
-elif pagina == "🎓 Formação Acadêmica":
+else:
     st.title("🎓 Proporção de Mulheres na Graduação Superior")
 
-    st.subheader("1. % de Mulheres por Área (Total vs. STEM vs. Saúde/Educação)")
-    df_melt_form = df_fo_fil.melt(
+    df_melt = df_fil.melt(
         id_vars=["uf_regiao"],
-        value_vars=["pct_mulheres_total", "pct_mulheres_stem", "pct_mulheres_saude"],
+        value_vars=list(NOMES_AREAS),
         var_name="Área",
-        value_name="Percentual"
+        value_name="Percentual",
     )
-    mapa_area = {
-        "pct_mulheres_total": "Graduação Total",
-        "pct_mulheres_stem": "STEM (Exatas/Tecnologia)",
-        "pct_mulheres_saude": "Saúde e Educação"
-    }
-    df_melt_form["Área"] = df_melt_form["Área"].map(mapa_area)
+    df_melt["Área"] = df_melt["Área"].map(NOMES_AREAS)
 
-    fig_form = px.bar(
-        df_melt_form,
+    st.subheader("1. % de Mulheres por Área e Localidade")
+    fig_barras = px.bar(
+        df_melt,
         x="uf_regiao",
         y="Percentual",
         color="Área",
         barmode="group",
-        labels={"Percentual": "% de Mulheres", "uf_regiao": "Localidade"}
+        labels={"Percentual": "% de Mulheres", "uf_regiao": "Localidade"},
     )
-    fig_form.add_hline(y=50, line_dash="dash", line_color="gray", annotation_text="Paridade (50%)")
-    st.plotly_chart(fig_form, use_container_width=True)
+    fig_barras.add_hline(y=50, line_dash="dash", line_color="gray", annotation_text="Paridade (50%)")
+    st.plotly_chart(fig_barras, width="stretch")
 
-    st.subheader("2. Comparativo da Distribuição por Área (Boxplot)")
-    fig_box_form = px.box(
-        df_melt_form,
-        x="Área",
-        y="Percentual",
-        color="Área",
-        points="all"
+    st.subheader("2. Distribuição por Área (Boxplot)")
+    fig_box = px.box(df_melt, x="Área", y="Percentual", color="Área", points="all")
+    fig_box.add_hline(y=50, line_dash="dash", line_color="gray")
+    st.plotly_chart(fig_box, width="stretch")
+
+    st.subheader("3. Ranking de Mulheres em STEM")
+    ranking = df_fil.dropna(subset=["pct_mulheres_stem"]).sort_values("pct_mulheres_stem")
+    fig_rank = px.bar(
+        ranking,
+        x="pct_mulheres_stem",
+        y="uf_regiao",
+        orientation="h",
+        text_auto=".1f",
+        labels={"pct_mulheres_stem": "% de Mulheres em STEM", "uf_regiao": "Localidade"},
+        color="pct_mulheres_stem",
+        color_continuous_scale="Blues",
     )
-    fig_box_form.add_hline(y=50, line_dash="dash", line_color="gray")
-    st.plotly_chart(fig_box_form, use_container_width=True)
-
-
-
-    st.subheader("3. % de Mulheres por Área (Total vs. STEM vs. Saúde/Educação)")
-    df_tb3 = pd.DataFrame({
-    'Ano': [2018, 2019, 2020, 2021, 2022, 2023],
-    'STEM': [28.4, 29.1, 30.5, 31.2, 32.8, 34.0],
-    'Saude': [70.2, 71.0, 71.5, 72.0, 73.1, 74.5]
-    }).melt(id_vars=['Ano'], var_name='Área', value_name='Pct_Mulheres')
-
-    fig = px.line(
-    df_tb3, x='Ano', y='Pct_Mulheres', color='Área',
-    markers=True,
-    line_shape='linear',
-    title="Evolução do % de Mulheres na Graduação"
+    fig_rank.add_vline(
+        x=br["pct_mulheres_stem"],
+        line_dash="dash",
+        line_color="red",
+        annotation_text=f"Brasil ({br['pct_mulheres_stem']:.1f}%)",
     )
-
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_rank, width="stretch")
